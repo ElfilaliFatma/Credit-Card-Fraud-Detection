@@ -22,6 +22,9 @@ import time
 import uuid
 from datetime import datetime
 from typing import Optional
+import mlflow
+import mlflow.sklearn
+from sklearn.decomposition import PCA
 import logging
 
 logger = logging.getLogger(__name__)
@@ -217,6 +220,41 @@ def train_model(model_type: str, hyperparams: dict, dataset_path: Optional[str] 
     logger.info(f"Model saved: {model_path}")
 
     training_time = round(time.time() - start_time, 2)
+
+    # MLflow tracking
+    mlflow.set_tracking_uri("../../mlruns")
+    with mlflow.start_run(run_name=f"{model_type}_{model_id}"):
+        # Log params
+        for k, v in hyperparams.items():
+            mlflow.log_param(k, v)
+        mlflow.log_param("test_size", test_size)
+        mlflow.log_param("use_smote", use_smote)
+        
+        # Log metrics
+        mlflow.log_metric("accuracy", metrics["accuracy"])
+        mlflow.log_metric("f1_score", metrics["f1_score"])
+        mlflow.log_metric("precision", metrics["precision"])
+        mlflow.log_metric("recall", metrics["recall"])
+        mlflow.log_metric("roc_auc", metrics["roc_auc"])
+        mlflow.log_metric("training_time", training_time)
+        
+        # Dimensionality reduction: PCA
+        pca = PCA(n_components=2)
+        pca.fit(X_train_scaled)
+        mlflow.log_metric("pca_explained_variance", sum(pca.explained_variance_ratio_))
+        
+        # Log model
+        mlflow.sklearn.log_model(model, "model")
+        
+        # Log result as artifact
+        import json
+        with open("result.json", "w") as f:
+            json.dump({
+                "model_id": model_id,
+                "metrics": {k: v for k, v in metrics.items() if k != "roc_curve" and k != "pr_curve"},  # Simplify for artifact
+                "feature_importance": feature_importance
+            }, f)
+        mlflow.log_artifact("result.json", "artifacts")
 
     return {
         "model_id": model_id,
